@@ -243,21 +243,25 @@ foreach my $bb (@bbs) {
 	# print $label , "\n";
 	my @reordered_bb = @bb_content [map { $_ - 1 } @new_order];
 	@{ $bb->{content} } = ($label, @reordered_bb);
+	last
 }
 
 # ======== Replace the modified bb to the asm file ========
-my $first_bb = $bbs[0];
-my $start = $first_bb->{start};
-my $end = $first_bb->{end};
-my @new_lines = @{ $first_bb->{content} };
-my @lines = split "\n", $asm->{content};
-
-splice @lines, $start, $end - $start, @new_lines;
 my @file_lines = split "\n", $file;
-my $start_line = $asm->{start_line};
-my $end_line = $asm->{end_line};
-print "Start: $start_line, End: $end_line\n";
-splice @file_lines, $start_line, $end_line - $start_line, @lines;
+my @asm_lines = split "\n", $asm->{content};
+my $first_bb = $bbs[0];
+
+# ==== Replace bb to asm ====
+my $bb_start = $first_bb->{start};
+my $bb_end = $first_bb->{end};
+my @rescheduled_bb_lines = @{ $first_bb->{content} };
+splice @asm_lines, $bb_start, $bb_end - $bb_start, @rescheduled_bb_lines;
+# ==== Replace asm to file ====
+my $asm_start = $asm->{start};
+my $asm_end = $asm->{end};
+splice @file_lines, $asm_start, $asm_end - $asm_start, @asm_lines;
+
+# ==== Write to file ====
 open my $out, '>', 'asm/out.s' or die "Can't write file: $!";
 print $out join("\n", @file_lines);
 close $out;

@@ -19,15 +19,6 @@ sub readFile {
 	return $content;
 }
 
-#sub extractAsmContent {
-#    my ($inp) = @_;
-#    if ($inp =~ /(?<start>;\s%bb\.0:|^\.LBB0_\d\d*)(?<asm_block>.*?)(?<end>\s+\.section\s+\.rodata)/s) {
-#        return $+{start} . $+{asm_block};
-#    } else {
-#        return undef;
-#    }
-#}
-
 sub extractAsmContent {
     my ($inp) = @_;
     my $full_text = $inp;
@@ -42,8 +33,8 @@ sub extractAsmContent {
 
         return {
             content     => $+{start} . $+{asm_block},
-            start_line  => $start_line_count,
-            end_line    => $end_line_count,
+            start 		=> $start_line_count,
+            end    		=> $end_line_count,
         };
     } else {
         return undef;
