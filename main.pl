@@ -17,9 +17,9 @@ $Data::Dumper::Deepcopy  = 1;
 # ======== File Parsing ========
 my $file = readFile("asm/kernel-hip-amdgcn-amd-amdhsa-gfx90a.s");
 my $asm = extractAsmContent($file);
-my @bbs = extractBasicBlocks($asm);
+my @bbs = extractBasicBlocks($asm->{content});
 
-#foreach my $line (@{$bbs[1]->{content}}) {
+#foreach my $line (@{$bbs[0]->{content}}) {
 #	print $line . "\n";
 #}
 
@@ -74,8 +74,6 @@ sub extractDepGraph {
 					}
 				}
 
-				print Dumper(\%smem_graph);
-
 				# Find RAW dep
 				foreach my $src (grep { exists $writes{$_} } @src) {
 					# the parent be the most rencently added dest op to the stack
@@ -102,23 +100,23 @@ sub extractDepGraph {
 					}
 				}
 				# Find WAW dep
-				foreach my $dst (grep { exists $writes{$_} } @dst) {
-					foreach my $parent (@{$writes{$dst}}) {
-						if ( my $smem_ref = $smem_graph{$parent->{lineNum}} ) {
-							my $smem_lineNum = $smem_ref->[0];
-							push @{$graph{$smem_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$smem_lineNum} // []};
-						}
-						elsif ( my $mubuf_ref = $mubuf_graph{$parent->{lineNum}} ) {
-							my $mubuf_lineNum = $mubuf_ref->[0];
-							push @{$graph{$mubuf_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$mubuf_lineNum} // []};
-						}
-						else {
-							push @{$graph{$parent->{lineNum}}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent->{lineNum}} // []};
-						}
-						last; # only care about the latest added dest op
-					}
+				#foreach my $dst (grep { exists $writes{$_} } @dst) {
+				#	foreach my $parent (@{$writes{$dst}}) {
+				#		if ( my $smem_ref = $smem_graph{$parent->{lineNum}} ) {
+				#			my $smem_lineNum = $smem_ref->[0];
+				#			push @{$graph{$smem_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$smem_lineNum} // []};
+				#		}
+				#		elsif ( my $mubuf_ref = $mubuf_graph{$parent->{lineNum}} ) {
+				#			my $mubuf_lineNum = $mubuf_ref->[0];
+				#			push @{$graph{$mubuf_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$mubuf_lineNum} // []};
+				#		}
+				#		else {
+				#			push @{$graph{$parent->{lineNum}}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent->{lineNum}} // []};
+				#		}
+				#		last; # only care about the latest added dest op
+				#	}
 
-				}
+				#}
 
 				unshift @{$writes{$_}}, $instruct foreach @dst;
 				push @{$reads{$_}}, $instruct foreach @src;
@@ -247,6 +245,23 @@ foreach my $bb (@bbs) {
 	@{ $bb->{content} } = ($label, @reordered_bb);
 }
 
-foreach my $line (@{$bbs[1]->{content}}) {
-	print $line . "\n";
-}
+# ======== Replace the modified bb to the asm file ========
+my $first_bb = $bbs[0];
+my $start = $first_bb->{start};
+my $end = $first_bb->{end};
+my @new_lines = @{ $first_bb->{content} };
+my @lines = split "\n", $asm->{content};
+
+splice @lines, $start, $end - $start, @new_lines;
+my @file_lines = split "\n", $file;
+my $start_line = $asm->{start_line};
+my $end_line = $asm->{end_line};
+print "Start: $start_line, End: $end_line\n";
+splice @file_lines, $start_line, $end_line - $start_line, @lines;
+open my $out, '>', 'asm/out.s' or die "Can't write file: $!";
+print $out join("\n", @file_lines);
+close $out;
+
+#foreach my $line (@{$bbs[0]->{content}}) {
+#	print $line . "\n";
+#}

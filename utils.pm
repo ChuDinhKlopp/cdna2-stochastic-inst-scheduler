@@ -19,14 +19,37 @@ sub readFile {
 	return $content;
 }
 
+#sub extractAsmContent {
+#    my ($inp) = @_;
+#    if ($inp =~ /(?<start>;\s%bb\.0:|^\.LBB0_\d\d*)(?<asm_block>.*?)(?<end>\s+\.section\s+\.rodata)/s) {
+#        return $+{start} . $+{asm_block};
+#    } else {
+#        return undef;
+#    }
+#}
+
 sub extractAsmContent {
     my ($inp) = @_;
-    if ($inp =~ /(?<start>;\s%bb\.0:|^\.LBB0_\d\d*)(?<asm_block>.*?)(?<end>\s+\.section\s+\.rodata)/s) {
-        return $+{start} . $+{asm_block};
+    my $full_text = $inp;
+
+    if ($full_text =~ /(?<start>;\s%bb\.0:|^\.LBB0_\d\d*)(?<asm_block>.*?)(?<end>\s+\.section\s+\.rodata)/s) {
+        my $start_pos = $-[0];  # start position of entire match
+        my $end_pos   = $+[0];  # end position of entire match
+
+        # Count newlines before each position
+        my $start_line_count = substr($full_text, 0, $start_pos) =~ tr/\n//;
+        my $end_line_count   = substr($full_text, 0, $end_pos)   =~ tr/\n//;
+
+        return {
+            content     => $+{start} . $+{asm_block},
+            start_line  => $start_line_count,
+            end_line    => $end_line_count,
+        };
     } else {
-        return "";
+        return undef;
     }
 }
+
 
 sub extractBasicBlocks {
     my ($inp) = @_;
