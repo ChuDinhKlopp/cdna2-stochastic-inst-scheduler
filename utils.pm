@@ -60,7 +60,7 @@ sub extractBasicBlocks {
                 # Save the previous block
                 push @blocks, {
                     start   => $start_line,
-                    end     => $i - 1,
+                    end     => $i,
                     content => [ @$current_lines ],
                 };
                 $current_lines = [];

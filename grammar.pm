@@ -12,8 +12,9 @@ our @EXPORT = qw (
 	preProcessLine processAsmLine
 );
 
-my ($immRe, $lgkmRe, $vmRe, $sgprRe, $vgprRe, $opcodeRe);
+my ($immRe, $lgkmRe, $vmRe, $sgprRe, $vgprRe, $opcodeRe, $labelRe);
 
+$labelRe = qr"^\.LBB0_\d+";
 $immRe = qr"(0x[a-zA-Z\d]+|\d+)";
 $lgkmRe = qr"lgkm_?cnt\(\d+\)";
 $vmRe = qr"vm_?cnt\(\d+\)";
@@ -24,7 +25,9 @@ $opcodeRe = qr"(^[a-zA-Z_\d]+)";
 our %grammar = (
 	# ======== SOPP ========
 	s_waitcnt 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<lgkm>$lgkmRe)|(?<vm>$vmRe)|(?<simm>$immRe)"} ],
-
+	s_cbranch 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<lbl>$labelRe)"} ],
+	s_nop	 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<simm>$immRe)"} ],
+	
 	# ======== SMEM ========
 	s_load_dword 		=> [ {format => "SMEM", rule => qr"$opcodeRe (?<sdata>$sgprRe), (?<sbase>$sgprRe), (?<offset>$immRe)"} ],
 
@@ -41,10 +44,13 @@ our %grammar = (
 	# ==== SOPC ====
 	s_cmp_lg 	 		=> [ {format => "SOPC", rule => qr"$opcodeRe (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)"} ],
 	# ==== SOPK ====
+	s_addk 	 			=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)"} ],
+	s_cmpk 	 			=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)"} ],
 	s_movk 	 			=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)"} ],
 
 	# ======== MUBUF ========
 	buffer_store_dword 	=> [ {format => "MUBUF", rule => qr"$opcodeRe (?<vdata>$vgprRe), off, (?<srsrc>$sgprRe), 0 offset:(?<offset>$immRe)"} ],
+	buffer_load_dword 	=> [ {format => "MUBUF", rule => qr"$opcodeRe (?<vdata>$vgprRe), off, (?<srsrc>$sgprRe), 0 offset:(?<offset>$immRe)"} ],
 
 	# ======== VALU ========
 	# ==== VOP1 ====
@@ -53,6 +59,8 @@ our %grammar = (
 	# ==== VOP2 ====
 	v_add 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 	v_and 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
+	v_fmac 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
+	v_pk_fmac 			=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 	v_lshlrev 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 	v_lshrrev 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 
@@ -67,7 +75,24 @@ our %grammar = (
 	v_mad_i64_i32 		=> [ {format => "VOP3B", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<sdst>$sgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<src1>$sgprRe|$vgprRe|$immRe), (?<src2>$sgprRe|$vgprRe|$immRe)"} ],
 
 	# ==== VOP3P ====
-	v_pk_mov			=> [ {format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$sgprRe), (?<src1>$sgprRe) op_sel:[\d+,\d+]"} ],
+	v_pk_mov			=> [  
+		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$sgprRe), (?<src1>$sgprRe) op_sel:[\d+,\d+]"},
+		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe), (?<src1>$vgprRe) op_sel:[\d+,\d+]"},
+		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe), (?<src1>$vgprRe), (?<src2>$vgprRe)"},
+		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe), (?<src1>$vgprRe), (?<src2>$vgprRe) op_sel_hi:[\d+,\d+,\d+]"} 
+	],
+	v_pk_fma			=> [ 
+		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$sgprRe), (?<src1>$sgprRe) op_sel:[\d+,\d+]"},
+		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe), (?<src1>$vgprRe) op_sel:[\d+,\d+]"},
+		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe), (?<src1>$vgprRe), (?<src2>$vgprRe)"},
+		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe), (?<src1>$vgprRe), (?<src2>$vgprRe) op_sel_hi:[\d+,\d+,\d+]"} 
+	],
+	# ======== LDS & GDS ========
+	# ==== DS ====
+	ds_read 			=> [ 
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe)"},
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe) offset:\d+"}, 
+	],
 );
 
 sub preProcessLine {
@@ -85,11 +110,10 @@ sub preProcessLine {
 }			
 
 sub processAsmLine {
-	my ($line, $lineNum, $graph) = @_;
-	my @LGKM = ();
-	my @VM = ();
+	my ($line, $lineNum) = @_;
 
-	if ($line =~ m"(?<op>$opcodeRe)\s+($sgprRe|$vgprRe|$lgkmRe|$vmRe)") {
+	#if ($line =~ m"(?<op>$opcodeRe)\s+($sgprRe|$vgprRe|$lgkmRe|$vmRe)") {
+	if ($line =~ m"(?<op>$opcodeRe)\s+(.)") {
 		return {
 			lineNum => $lineNum,
 			opcode => $+{op},

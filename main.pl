@@ -19,7 +19,7 @@ my $file = readFile("asm/kernel-hip-amdgcn-amd-amdhsa-gfx90a.s");
 my $asm = extractAsmContent($file);
 my @bbs = extractBasicBlocks($asm->{content});
 
-#foreach my $line (@{$bbs[0]->{content}}) {
+#foreach my $line (@{$bbs[1]->{content}}) {
 #	print $line . "\n";
 #}
 
@@ -28,7 +28,7 @@ my (%counter, %srcReg, %dstReg, %regOps, %lgkmcnt, %vmcnt);
 %lgkmcnt = map { $_ => 1 } qw (lgkm);
 %vmcnt = map { $_ => 1 } qw (vm);
 %counter = (%lgkmcnt, %vmcnt);
-%srcReg = map { $_ => 1 } qw(sbase ssrc0 ssrc1 vsrc1 src0 src1 src2 srsrc);
+%srcReg = map { $_ => 1 } qw(sbase ssrc0 ssrc1 vsrc1 src0 src1 src2 srsrc data0 data1);
 %dstReg = map { $_ => 1 } qw(sdata sdst vdata vdst);
 %regOps = (%srcReg, %dstReg);
 
@@ -99,6 +99,7 @@ sub extractDepGraph {
 
 					}
 				}
+
 				# Find WAW dep
 				#foreach my $dst (grep { exists $writes{$_} } @dst) {
 				#	foreach my $parent (@{$writes{$dst}}) {
@@ -206,6 +207,7 @@ sub random_topo_sort {
 foreach my $bb (@bbs) {
 	my @bb_content = @{ $bb->{content} };
 	my $label = shift @bb_content;
+	my $jmp = "";
 	my (%dep_graph, %in_degree, %nodes, @all_nodes, @instructs);
 	# ==== preprocess line test ====
 	my $lineNum = 0;
@@ -213,7 +215,7 @@ foreach my $bb (@bbs) {
 		$lineNum++;
 		if (preProcessLine($line)) {
 			if (my $inst = processAsmLine($line, $lineNum)) {
-				push @instructs, $inst if $inst =~ m'\S';
+				($inst->{opcode} !~ m"branch") ? push (@instructs, $inst) : ($jmp = $inst->{inst});
 			}
 		}
 	}
@@ -223,7 +225,6 @@ foreach my $bb (@bbs) {
 	%dep_graph = extractDepGraph(@instructs);
 
 	@all_nodes = (1 .. scalar(@instructs));
-	# print scalar(@all_nodes) . "\n";
 
 	# ==== Initialize nodes from graph ====
 	foreach my $src (keys %dep_graph) {
@@ -240,21 +241,20 @@ foreach my $bb (@bbs) {
 		$in_degree{$node} //= 0;  # Set to 0 if not defined
 	}
 	my @new_order = random_topo_sort(\%dep_graph, \%in_degree, \@instructs);
-	# print $label , "\n";
 	my @reordered_bb = @bb_content [map { $_ - 1 } @new_order];
-	@{ $bb->{content} } = ($label, @reordered_bb);
-	last
+	@{$bb->{content}} = ($label, @reordered_bb, ($jmp ne '' ? $jmp : ()));
 }
 
 # ======== Replace the modified bb to the asm file ========
 my @file_lines = split "\n", $file;
 my @asm_lines = split "\n", $asm->{content};
-my $first_bb = $bbs[0];
+my $bb = $bbs[3];
 
 # ==== Replace bb to asm ====
-my $bb_start = $first_bb->{start};
-my $bb_end = $first_bb->{end};
-my @rescheduled_bb_lines = @{ $first_bb->{content} };
+my $bb_start = $bb->{start};
+my $bb_end = $bb->{end};
+print "$bb_start, $bb_end\n";
+my @rescheduled_bb_lines = @{ $bb->{content} };
 splice @asm_lines, $bb_start, $bb_end - $bb_start, @rescheduled_bb_lines;
 # ==== Replace asm to file ====
 my $asm_start = $asm->{start};
@@ -266,6 +266,6 @@ open my $out, '>', 'asm/out.s' or die "Can't write file: $!";
 print $out join("\n", @file_lines);
 close $out;
 
-#foreach my $line (@{$bbs[0]->{content}}) {
+#foreach my $line (@{$bbs[1]->{content}}) {
 #	print $line . "\n";
 #}
