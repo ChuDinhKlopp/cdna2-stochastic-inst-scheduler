@@ -8,8 +8,8 @@ use Exporter 'import';
 
 our @EXPORT = qw (
 	%grammar 
-	parseInstruct flattenRegName
-	preProcessLine processAsmLine
+	parseInstruct flattenRegName isRegConsecutive
+	preProcessLine processAsmLine 
 );
 
 my ($immRe, $lgkmRe, $vmRe, $sgprRe, $vgprRe, $opcodeRe, $labelRe);
@@ -145,6 +145,22 @@ sub parseInstruct {
 	return unless $inst =~ $gram->{rule};
 	my %capData = %+;
 	return \%capData;
+}
+
+sub isRegConsecutive {
+    my ($reg1, $reg2) = @_;
+
+    if ($reg1 =~ m"^(?<prefix>[sv])(?<num1>\d+)") {
+        my $prefix = $+{prefix};
+        my $num1 = $+{num1};
+
+        if ($reg2 =~ m"^$prefix(?<num2>\d+)") {
+            my $num2 = $+{num2};
+            return 1 if defined($num1) && defined($num2) && $num1 == $num2 - 1;
+        }
+    }
+
+    return 0;
 }
 
 __END__

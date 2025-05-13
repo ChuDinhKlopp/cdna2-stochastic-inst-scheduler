@@ -34,8 +34,8 @@ my (%counter, %srcReg, %dstReg, %regOps, %lgkmcnt, %vmcnt);
 
 sub extractDepGraph {
 	my (@instructs) = @_;
-	my (%writes, %reads, %graph, %smem_graph, %mubuf_graph);
-	my (@smem_lineNums, @mubuf_lineNums);
+	my (%writes, %reads, %graph, %smem_graph, %mubuf_graph, %add_hash);
+	my (@smem_lineNums, @mubuf_lineNums, @pending_adds);
 	foreach my $instruct (@instructs) {
 		# This sort line is crucial to avoid cases like matching v_and_ and v_and_or
 		my @sorted_keys = sort { length($b) <=> length($a) } keys %grammar;
@@ -53,6 +53,25 @@ sub extractDepGraph {
 						push @$list, $reg unless grep { $_ eq $reg } @$list;
 					}
 				}
+
+				# Handle add and addc
+				if ($instruct->{opcode} =~ m"^(?<main_prefix>s|v)_add_") {
+					$add_hash{instruct} = $instruct;
+					$add_hash{dst} = $dst[0];
+					push @pending_adds, \%add_hash;
+				}
+
+				elsif ($instruct->{opcode} =~ m"^(?<carry_prefix>s|v)_addc_") {
+					my $addc_dst = $dst[0];
+					for (my $i = $#pending_adds; $i >= 0; $i--) {
+						my $add_inst = $pending_adds[$i]->{instruct};
+						my $add_dst = $pending_adds[$i]->{dst};
+						if ($add_inst->{opcode} =~ m"^$+{carry_prefix}_add_" && isRegConsecutive($add_dst, $addc_dst)) {
+							push @{$graph{$add_inst->{lineNum}}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$add_inst->{lineNum}} // []};
+						}
+					}
+				}
+
 				# Handle s_waitcnt
 				foreach my $operand (grep { exists $counter{$_} } sort keys %$capData) {
 					if (exists($lgkmcnt{$operand})) {
@@ -92,6 +111,7 @@ sub extractDepGraph {
 						last; # only care about the latest added dest op
 					}
 				}
+
 				# Find WAR dep
 				foreach my $dst (grep { exists $reads{$_} } @dst) {
 					foreach my $child (@{$reads{$dst}}) {
@@ -101,23 +121,22 @@ sub extractDepGraph {
 				}
 
 				# Find WAW dep
-				#foreach my $dst (grep { exists $writes{$_} } @dst) {
-				#	foreach my $parent (@{$writes{$dst}}) {
-				#		if ( my $smem_ref = $smem_graph{$parent->{lineNum}} ) {
-				#			my $smem_lineNum = $smem_ref->[0];
-				#			push @{$graph{$smem_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$smem_lineNum} // []};
-				#		}
-				#		elsif ( my $mubuf_ref = $mubuf_graph{$parent->{lineNum}} ) {
-				#			my $mubuf_lineNum = $mubuf_ref->[0];
-				#			push @{$graph{$mubuf_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$mubuf_lineNum} // []};
-				#		}
-				#		else {
-				#			push @{$graph{$parent->{lineNum}}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent->{lineNum}} // []};
-				#		}
-				#		last; # only care about the latest added dest op
-				#	}
-
-				#}
+				foreach my $dst (grep { exists $writes{$_} } @dst) {
+					foreach my $parent (@{$writes{$dst}}) {
+						if ( my $smem_ref = $smem_graph{$parent->{lineNum}} ) {
+							my $smem_lineNum = $smem_ref->[0];
+							push @{$graph{$smem_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$smem_lineNum} // []};
+						}
+						elsif ( my $mubuf_ref = $mubuf_graph{$parent->{lineNum}} ) {
+							my $mubuf_lineNum = $mubuf_ref->[0];
+							push @{$graph{$mubuf_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$mubuf_lineNum} // []};
+						}
+						else {
+							push @{$graph{$parent->{lineNum}}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent->{lineNum}} // []};
+						}
+						# last; # only care about the latest added dest op
+					}
+				}
 
 				unshift @{$writes{$_}}, $instruct foreach @dst;
 				push @{$reads{$_}}, $instruct foreach @src;
@@ -128,7 +147,6 @@ sub extractDepGraph {
 				elsif ($gram->{format} =~ m"MUBUF") {
 					push @mubuf_lineNums, $instruct->{lineNum};
 				}
-				
 			}
 		}
 	}
@@ -248,7 +266,7 @@ foreach my $bb (@bbs) {
 # ======== Replace the modified bb to the asm file ========
 my @file_lines = split "\n", $file;
 my @asm_lines = split "\n", $asm->{content};
-my $bb = $bbs[3];
+my $bb = $bbs[1];
 
 # ==== Replace bb to asm ====
 my $bb_start = $bb->{start};
