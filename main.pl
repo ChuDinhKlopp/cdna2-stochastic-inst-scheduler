@@ -17,7 +17,8 @@ $Data::Dumper::Purity    = 0;
 $Data::Dumper::Deepcopy  = 1;
 
 # ======== File Parsing ========
-my $file = readFile("asm/kernel-hip-amdgcn-amd-amdhsa-gfx90a.s");
+my $asm_path = File::Spec->catfile("asm", $ARGV[0]);
+my $file = readFile($asm_path);
 my $asm = extractAsmContent($file);
 my @bbs = extractBasicBlocks($asm->{content});
 
