@@ -41,28 +41,26 @@ sub extractAsmContent {
     }
 }
 
-
 sub extractBasicBlocks {
     my ($inp) = @_;
-    my @blocks;
+    my (@bbs, %bb);
 
     my @lines = split(/\n/, $inp);
     my $inside_block = 0;
-
+	
     my $start_line = 0;
     my $current_lines = [];
 
     for (my $i = 0; $i <= $#lines; $i++) {
         my $line = $lines[$i];
 
-        if ($line =~ /(^;\s*%bb\.\d+:|^\.LBB0_\d+:)/) {
+        if ($line =~ m"^(.|;)\s?(%bb.\d+|LBB0_\d+):") {
             if ($inside_block) {
+				$bb{start} = $start_line;
+				$bb{end} = $i - 1;
+				$bb{content} = [ @$current_lines ];
                 # Save the previous block
-                push @blocks, {
-                    start   => $start_line,
-                    end     => $i,
-                    content => [ @$current_lines ],
-                };
+                push @bbs, { %bb };
                 $current_lines = [];
             }
             $inside_block = 1;
@@ -76,15 +74,13 @@ sub extractBasicBlocks {
 
     # Push the last block if still open
     if ($inside_block && @$current_lines) {
-        push @blocks, {
-            start   => $start_line,
-            end     => $#lines,
-            content => [ @$current_lines ],
-        };
+		$bb{start} = $start_line;
+		$bb{end} = $#lines - 1;
+		$bb{content} = [ @$current_lines ];
+		push @bbs, { %bb };
     }
 
-    return @blocks;
+    return @bbs;
 }
-
 
 __END__

@@ -27,6 +27,7 @@ our %grammar = (
 	s_waitcnt 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<lgkm>$lgkmRe)|(?<vm>$vmRe)|(?<simm>$immRe)"} ],
 	s_cbranch 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<lbl>$labelRe)"} ],
 	s_nop	 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<simm>$immRe)"} ],
+	s_barrier 			=> [ {format => "SOPP", rule => qr"$opcodeRe"} ],
 	
 	# ======== SMEM ========
 	s_load_dword 		=> [ {format => "SMEM", rule => qr"$opcodeRe (?<sdata>$sgprRe), (?<sbase>$sgprRe), (?<offset>$immRe)"} ],
@@ -92,6 +93,8 @@ our %grammar = (
 	ds_read 			=> [ 
 		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe)"},
 		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe) offset:\d+"}, 
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe), (?<data1>$vgprRe) offset\d:\d+"}, 
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe), (?<data1>$vgprRe) offset\d:\d+ offset\d:\d+"}, 
 	],
 );
 

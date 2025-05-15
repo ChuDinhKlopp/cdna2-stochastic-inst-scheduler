@@ -5,8 +5,10 @@ use Data::Dumper;
 use FindBin;
 use lib "$FindBin::Bin";
 use List::Util qw(shuffle);
+use File::Spec;
 
 use grammar;
+use dag;
 use utils;
 
 # ======== Config ========
@@ -24,170 +26,6 @@ my @bbs = extractBasicBlocks($asm->{content});
 #}
 
 # ======== Define ========
-my (%counter, %srcReg, %dstReg, %regOps, %lgkmcnt, %vmcnt);
-%lgkmcnt = map { $_ => 1 } qw (lgkm);
-%vmcnt = map { $_ => 1 } qw (vm);
-%counter = (%lgkmcnt, %vmcnt);
-%srcReg = map { $_ => 1 } qw(sbase ssrc0 ssrc1 vsrc1 src0 src1 src2 srsrc data0 data1);
-%dstReg = map { $_ => 1 } qw(sdata sdst vdata vdst);
-%regOps = (%srcReg, %dstReg);
-
-sub extractDepGraph {
-	my (@instructs) = @_;
-	my (%writes, %reads, %graph, %smem_graph, %mubuf_graph, %add_hash);
-	my (@smem_lineNums, @mubuf_lineNums, @pending_adds);
-	foreach my $instruct (@instructs) {
-		# This sort line is crucial to avoid cases like matching v_and_ and v_and_or
-		my @sorted_keys = sort { length($b) <=> length($a) } keys %grammar;
-		if (my @matches = grep { $instruct->{opcode} =~ m"^$_" } @sorted_keys) {
-			foreach my $gram (@{$grammar{$matches[0]}}) {
-				my $capData = parseInstruct($instruct->{inst}, $gram) or next;
-				my (@dst, @src);
-				# Populate @dst and @src
-				foreach my $operand (grep { exists $regOps{$_} } sort keys %$capData) {
-					# Figure out which list to populate
-					my $list = exists($dstReg{$operand}) ? \@dst : \@src;
-					my @regs = flattenRegName($capData->{$operand});
-					# this loop handle duplicate operands in
-					foreach my $reg (@regs) {
-						push @$list, $reg unless grep { $_ eq $reg } @$list;
-					}
-				}
-
-				# Handle add and addc
-				if ($instruct->{opcode} =~ m"^(?<main_prefix>s|v)_add_") {
-					$add_hash{instruct} = $instruct;
-					$add_hash{dst} = $dst[0];
-					push @pending_adds, \%add_hash;
-				}
-
-				elsif ($instruct->{opcode} =~ m"^(?<carry_prefix>s|v)_addc_") {
-					my $addc_dst = $dst[0];
-					for (my $i = $#pending_adds; $i >= 0; $i--) {
-						my $add_inst = $pending_adds[$i]->{instruct};
-						my $add_dst = $pending_adds[$i]->{dst};
-						if ($add_inst->{opcode} =~ m"^$+{carry_prefix}_add_" && isRegConsecutive($add_dst, $addc_dst)) {
-							push @{$graph{$add_inst->{lineNum}}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$add_inst->{lineNum}} // []};
-						}
-					}
-				}
-
-				# Handle s_waitcnt
-				foreach my $operand (grep { exists $counter{$_} } sort keys %$capData) {
-					if (exists($lgkmcnt{$operand})) {
-						while (my $parent = shift (@smem_lineNums)) {
-							# TODO: Need optimization here
-							push @{$graph{$parent}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent} // []};
-							push @{$smem_graph{$parent}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$smem_graph{$parent} // []};
-						}
-					}
-					elsif (exists($vmcnt{$operand})) {
-						while (my $parent = shift (@mubuf_lineNums)) {
-							# TODO: Need optimization here
-							push @{$graph{$parent}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent} // []};
-							push @{$mubuf_graph{$parent}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$mubuf_graph{$parent} // []};
-						}
-					}
-					else {
-						die "Invalid counter $operand \n";
-					}
-				}
-
-				# Find RAW dep
-				foreach my $src (grep { exists $writes{$_} } @src) {
-					# the parent be the most rencently added dest op to the stack
-					foreach my $parent (@{$writes{$src}}) {
-						if ( my $smem_ref = $smem_graph{$parent->{lineNum}} ) {
-							my $smem_lineNum = $smem_ref->[0];
-							push @{$graph{$smem_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$smem_lineNum} // []};
-						}
-						elsif ( my $mubuf_ref = $mubuf_graph{$parent->{lineNum}} ) {
-							my $mubuf_lineNum = $mubuf_ref->[0];
-							push @{$graph{$mubuf_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$mubuf_lineNum} // []};
-						}
-						else {
-							push @{$graph{$parent->{lineNum}}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent->{lineNum}} // []};
-						}
-						last; # only care about the latest added dest op
-					}
-				}
-
-				# Find WAR dep
-				foreach my $dst (grep { exists $reads{$_} } @dst) {
-					foreach my $child (@{$reads{$dst}}) {
-						push @{$graph{$child->{lineNum}}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$child->{lineNum}} // []};
-
-					}
-				}
-
-				# Find WAW dep
-				foreach my $dst (grep { exists $writes{$_} } @dst) {
-					foreach my $parent (@{$writes{$dst}}) {
-						if ( my $smem_ref = $smem_graph{$parent->{lineNum}} ) {
-							my $smem_lineNum = $smem_ref->[0];
-							push @{$graph{$smem_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$smem_lineNum} // []};
-						}
-						elsif ( my $mubuf_ref = $mubuf_graph{$parent->{lineNum}} ) {
-							my $mubuf_lineNum = $mubuf_ref->[0];
-							push @{$graph{$mubuf_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$mubuf_lineNum} // []};
-						}
-						else {
-							push @{$graph{$parent->{lineNum}}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent->{lineNum}} // []};
-						}
-						# last; # only care about the latest added dest op
-					}
-				}
-
-				unshift @{$writes{$_}}, $instruct foreach @dst;
-				push @{$reads{$_}}, $instruct foreach @src;
-
-				if ($gram->{format} =~ m"SMEM") {
-					push @smem_lineNums, $instruct->{lineNum};
-				}
-				elsif ($gram->{format} =~ m"MUBUF") {
-					push @mubuf_lineNums, $instruct->{lineNum};
-				}
-			}
-		}
-	}
-	return %graph;
-}
-
-sub all_topo_sorts {
-    my ($graph, $in_degree, $path, $visited, $results) = @_;
-    my $done = 1;
-
-    foreach my $node (sort keys %$in_degree) {
-        next if $visited->{$node};
-        next if $in_degree->{$node} > 0;
-
-        $done = 0;
-        $visited->{$node} = 1;
-        push @$path, $node;
-
-        if (exists $graph->{$node}) {
-            foreach my $child (@{$graph->{$node}}) {
-                $in_degree->{$child}--;
-            }
-        }
-
-        all_topo_sorts($graph, $in_degree, $path, $visited, $results);
-
-        # Backtrack
-        pop @$path;
-        $visited->{$node} = 0;
-        if (exists $graph->{$node}) {
-            foreach my $child (@{$graph->{$node}}) {
-                $in_degree->{$child}++;
-            }
-        }
-    }
-
-    if ($done) {
-        push @$results, [ @$path ];  # store a copy of the completed path
-    }
-}
-
 sub random_topo_sort {
     my ($graph, $in_degree_ref, $instructs_ref) = @_;
     my %in_degree = %$in_degree_ref;
@@ -240,7 +78,7 @@ foreach my $bb (@bbs) {
 
 	next if !@instructs;
 
-	%dep_graph = extractDepGraph(@instructs);
+	%dep_graph = extractDAG(@instructs);
 
 	@all_nodes = (1 .. scalar(@instructs));
 
@@ -258,8 +96,44 @@ foreach my $bb (@bbs) {
 		$nodes{$node} = 1;
 		$in_degree{$node} //= 0;  # Set to 0 if not defined
 	}
-	my @new_order = random_topo_sort(\%dep_graph, \%in_degree, \@instructs);
-	my @reordered_bb = @bb_content [map { $_ - 1 } @new_order];
+
+	$label =~ m"^(;|.)\s?(?<bb_label>%bb.\d+|LBB0_\d+)";
+	print "Label:" . $+{bb_label} . "\n";
+
+	my $state_file = $+{bb_label} . '_topo_state.dat';
+	my $state_dir = "state";
+	unless (-d $state_dir) {
+		mkdir $state_dir or die "Failed to create directory '$state_dir': $!";
+	}
+	my $state_path = File::Spec->catfile($state_dir, $state_file);
+	my $stack;
+	my $sort;
+
+	if (-e $state_path) {
+		# Continue from existing state
+		my $generator = dag->load_topo_state($state_path);
+		
+		if ($sort = $generator->topo_sort_gen()) {
+			print "Next topological sort: " . join(" -> ", @$sort) . "\n";
+			$generator->save_topo_state($state_path);
+		} else {
+			print "No more topological sorts available.\n";
+			unlink $state_path;
+		}
+	} else {
+		my $generator = dag->new(\%dep_graph, \%in_degree);
+		if ($sort = $generator->topo_sort_gen()) {
+			print "First topological sort: " . join(" -> ", @$sort) . "\n";
+			$generator->save_topo_state($state_path);
+		} else {
+			print "No topological sorts found for the given graph.\n";
+		}
+	}
+
+	my @reordered_bb = @bb_content [map { $_ - 1 } @$sort];
+
+	# my @new_order = random_topo_sort(\%dep_graph, \%in_degree, \@instructs);
+	# my @reordered_bb = @bb_content [map { $_ - 1 } @new_order];
 	@{$bb->{content}} = ($label, @reordered_bb, ($jmp ne '' ? $jmp : ()));
 }
 
@@ -271,19 +145,19 @@ my $bb = $bbs[1];
 # ==== Replace bb to asm ====
 my $bb_start = $bb->{start};
 my $bb_end = $bb->{end};
-print "$bb_start, $bb_end\n";
+print "\n$bb_start, $bb_end\n";
 my @rescheduled_bb_lines = @{ $bb->{content} };
-splice @asm_lines, $bb_start, $bb_end - $bb_start, @rescheduled_bb_lines;
+splice @asm_lines, $bb_start, $bb_end - $bb_start + 1, @rescheduled_bb_lines;
 # ==== Replace asm to file ====
 my $asm_start = $asm->{start};
 my $asm_end = $asm->{end};
-splice @file_lines, $asm_start, $asm_end - $asm_start, @asm_lines;
+splice @file_lines, $asm_start, $asm_end - $asm_start + 1, @asm_lines;
 
 # ==== Write to file ====
 open my $out, '>', 'asm/out.s' or die "Can't write file: $!";
 print $out join("\n", @file_lines);
 close $out;
 
-#foreach my $line (@{$bbs[1]->{content}}) {
-#	print $line . "\n";
-#}
+foreach my $line (@{$bbs[1]->{content}}) {
+	print $line . "\n";
+}
