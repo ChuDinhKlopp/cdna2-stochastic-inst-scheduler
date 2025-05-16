@@ -30,14 +30,27 @@ sub extractDAG {
 			foreach my $gram (@{$grammar{$matches[0]}}) {
 				my $capData = parseInstruct($instruct->{inst}, $gram) or next;
 				my (@dst, @src);
-				# Populate @dst and @src
+				# ==== Populate @dst and @src ====
+				# Handle explicit states
 				foreach my $operand (grep { exists $regOps{$_} } sort keys %$capData) {
 					# Figure out which list to populate
 					my $list = exists($dstReg{$operand}) ? \@dst : \@src;
 					my @regs = flattenRegName($capData->{$operand});
-					# this loop handle duplicate operands in
+					# this loop handle duplicate operands in @list
 					foreach my $reg (@regs) {
 						push @$list, $reg unless grep { $_ eq $reg } @$list;
+					}
+				}
+				# Handle implicit states
+				if (exists $gram->{implicit_reads} && ref($gram->{implicit_reads}) eq 'ARRAY') {
+					foreach my $state (@{$gram->{implicit_reads}}) {
+						push @src, $state unless grep { $_ eq $state} @src;
+					}
+				}
+
+				if (exists $gram->{implicit_writes} && ref($gram->{implicit_writes}) eq 'ARRAY') {
+					foreach my $state (@{$gram->{implicit_writes}}) {
+						push @dst, $state unless grep { $_ eq $state} @dst;
 					}
 				}
 
@@ -60,8 +73,10 @@ sub extractDAG {
 				}
 
 				# Handle s_waitcnt
+				# If encounter s_waitcnt, connect all previous SMEM or MUBUF to it
 				foreach my $operand (grep { exists $counter{$_} } sort keys %$capData) {
 					if (exists($lgkmcnt{$operand})) {
+						# clean out @smem_linenums while connect s_waitcnt to its parents
 						while (my $parent = shift (@smem_lineNums)) {
 							# TODO: Need optimization here
 							push @{$graph{$parent}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent} // []};
@@ -69,6 +84,7 @@ sub extractDAG {
 						}
 					}
 					elsif (exists($vmcnt{$operand})) {
+						# clean out @mubuf_linenums while connect s_waitcnt to its parents
 						while (my $parent = shift (@mubuf_lineNums)) {
 							# TODO: Need optimization here
 							push @{$graph{$parent}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent} // []};
@@ -84,6 +100,7 @@ sub extractDAG {
 				foreach my $src (grep { exists $writes{$_} } @src) {
 					# the parent be the most rencently added dest op to the stack
 					foreach my $parent (@{$writes{$src}}) {
+						# Check if this inst read a register written by previous SMEM
 						if ( my $smem_ref = $smem_graph{$parent->{lineNum}} ) {
 							my $smem_lineNum = $smem_ref->[0];
 							push @{$graph{$smem_lineNum}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$smem_lineNum} // []};
@@ -121,7 +138,7 @@ sub extractDAG {
 						else {
 							push @{$graph{$parent->{lineNum}}}, $instruct->{lineNum} unless grep { $_ == $instruct->{lineNum} } @{$graph{$parent->{lineNum}} // []};
 						}
-						# last; # only care about the latest added dest op
+						last; # only care about the latest added dest op
 					}
 				}
 

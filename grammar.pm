@@ -24,10 +24,10 @@ $opcodeRe = qr"(^[a-zA-Z_\d]+)";
 
 our %grammar = (
 	# ======== SOPP ========
-	s_waitcnt 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<lgkm>$lgkmRe)|(?<vm>$vmRe)|(?<simm>$immRe)"} ],
-	s_cbranch 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<lbl>$labelRe)"} ],
-	s_nop	 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<simm>$immRe)"} ],
+	s_cbranch 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<lbl>$labelRe)", implicit_reads => ['scc']} ],
 	s_barrier 			=> [ {format => "SOPP", rule => qr"$opcodeRe"} ],
+	s_nop	 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<simm>$immRe)"} ],
+	s_waitcnt 			=> [ {format => "SOPP", rule => qr"$opcodeRe (?<lgkm>$lgkmRe)|(?<vm>$vmRe)|(?<simm>$immRe)"} ],
 	
 	# ======== SMEM ========
 	s_load_dword 		=> [ {format => "SMEM", rule => qr"$opcodeRe (?<sdata>$sgprRe), (?<sbase>$sgprRe), (?<offset>$immRe)"} ],
@@ -37,16 +37,16 @@ our %grammar = (
 	s_mov 		 		=> [ {format => "SOP1", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<ssrc0>$sgprRe|$immRe)"} ],
 
 	# ==== SOP2 ====
-	s_add 		 		=> [ {format => "SOP2", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)"} ],
-	s_addc	 	 		=> [ {format => "SOP2", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)"} ],
+	s_add 		 		=> [ {format => "SOP2", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)", implicit_writes => ['scc']} ],
+	s_addc	 	 		=> [ {format => "SOP2", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)", implicit_writes => ['scc'], implicit_reads => ['scc']} ],
 	s_mul 		 		=> [ {format => "SOP2", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)"} ],
-	s_lshl 		 		=> [ {format => "SOP2", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)"} ],
+	s_lshl 		 		=> [ {format => "SOP2", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)", implicit_writes => ['scc']} ],
 
 	# ==== SOPC ====
-	s_cmp_lg 	 		=> [ {format => "SOPC", rule => qr"$opcodeRe (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)"} ],
+	s_cmp_lg 	 		=> [ {format => "SOPC", rule => qr"$opcodeRe (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)", implicit_writes => ['scc']} ],
 	# ==== SOPK ====
-	s_addk 	 			=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)"} ],
-	s_cmpk 	 			=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)"} ],
+	s_addk 	 			=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)", implicit_writes => ['scc']} ],
+	s_cmpk 	 			=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)", implicit_writes => ['scc']} ],
 	s_movk 	 			=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)"} ],
 
 	# ======== MUBUF ========
@@ -60,6 +60,8 @@ our %grammar = (
 	# ==== VOP2 ====
 	v_add 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 	v_and 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
+	v_add_co 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"},
+							 {format => "VOP3B", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 	v_fmac 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 	v_pk_fmac 			=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 	v_lshlrev 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
