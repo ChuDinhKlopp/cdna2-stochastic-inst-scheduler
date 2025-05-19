@@ -36,8 +36,8 @@ foreach my $bb (@bbs) {
 	my @clean_bb_content;
 	foreach my $line (@bb_content) {
 		if (preProcessLine($line)) {
+			$lineNum++;
 			if (my $inst = processAsmLine($line, $lineNum)) {
-				$lineNum++;
 				($inst->{opcode} !~ m"branch") ? push (@instructs, $inst) : ($jmp = $inst->{inst});
 				push @clean_bb_content, $line;
 			}
