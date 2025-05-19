@@ -34,6 +34,8 @@ our %grammar = (
 	# s_load_dword, s_load_dwordx2, s_load_dwordx4, s_load_dwordx8, s_load_dwordx16
 	's_load_dword(?:x2|x4|x8|x16)?' 		=> [ {format => "SMEM", rule => qr"$opcodeRe (?<sdata>$sgprRe), (?<sbase>$sgprRe), (?<offset>$immRe)"} ],
 
+	# ======== FLAT ========
+	'global_load_dword(?:x2|x3|x4)?'	=> [ {format => "FLAT", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<addr>$vgprRe), off"} ],
 	# ======== SALU ========
 	# ==== SOP1 ====
 	's_mov_(?:b32|b64)' 		 		=> [ {format => "SOP1", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<ssrc0>$sgprRe|$immRe)"} ],
@@ -63,7 +65,7 @@ our %grammar = (
 	'v_add_(?:f16|f32|u16|u32)' 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 	'v_add_co_u32' 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)", implicit_write => ['vcc']},
 							 {format => "VOP3B", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)", implicit_write => ['vcc']} ],
-	'v_addc_co_u32' 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"},
+	'v_addc_co_u32' 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)", implicit_write => ['vcc']},
 							 {format => "VOP3B", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)", implicit_write => ['vcc']} ],
 	'v_and_b32' 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 	v_fmac 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
@@ -102,11 +104,23 @@ our %grammar = (
 		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe), (?<data1>$vgprRe) offset\d:\d+"}, 
 		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe), (?<data1>$vgprRe) offset\d:\d+ offset\d:\d+"}, 
 	],
+	'ds_write_(?:b32|b64|b96|b128|b8|b16)' 	=> [
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe)"},
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe) offset:\d+"}, 
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe), (?<data1>$vgprRe) offset\d:\d+"}, 
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe), (?<data1>$vgprRe) offset\d:\d+ offset\d:\d+"}, 
+	],
+	'ds_write2_(?:b32|b64)' 	=> [
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe)"},
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe) offset:\d+"}, 
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe), (?<data1>$vgprRe) offset\d:\d+"}, 
+		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe), (?<data1>$vgprRe) offset\d:\d+ offset\d:\d+"}, 
+	],
 );
 
 sub preProcessLine {
 	# remove leading space
-	$_[0] =~ s{^\s+}{};
+	$_[0] =~ s/^\s+//g;
 
 	# remove comment
 	$_[0] =~ s{(?:#|//|;).*}{};
@@ -115,7 +129,7 @@ sub preProcessLine {
 	my $instruct = shift;
 
 	# check if line is none blank after processing
-	return $instruct =~ m{\S};
+	return $instruct =~ m'\S';
 }			
 
 sub processAsmLine {

@@ -17,48 +17,13 @@ $Data::Dumper::Purity    = 0;
 $Data::Dumper::Deepcopy  = 1;
 
 # ======== File Parsing ========
-my $asm_path = File::Spec->catfile("asm", $ARGV[0]);
-my $file = readFile($asm_path);
+my $file = readFile("asm/kernel-hip-amdgcn-amd-amdhsa-gfx90a.s");
 my $asm = extractAsmContent($file);
 my @bbs = extractBasicBlocks($asm->{content});
 
 #foreach my $line (@{$bbs[1]->{content}}) {
 #	print $line . "\n";
 #}
-
-# ======== Define ========
-sub random_topo_sort {
-    my ($graph, $in_degree_ref, $instructs_ref) = @_;
-    my %in_degree = %$in_degree_ref;
-    my @result;
-
-    my $n = scalar(@$instructs_ref);  # total number of valid nodes (1-based)
-
-    # Start with all valid nodes with zero in-degree
-    my @zero_in = grep { $in_degree{$_} == 0 && $_ >= 1 && $_ <= $n } keys %in_degree;
-
-    while (@zero_in) {
-        @zero_in = shuffle(@zero_in);
-        my $node = shift @zero_in;
-
-        # Sanity check
-        next unless $node >= 1 && $node <= $n;
-
-        push @result, $node;
-
-        foreach my $child (@{ $graph->{$node} || [] }) {
-            $in_degree{$child}--;
-            push @zero_in, $child if $in_degree{$child} == 0;
-        }
-    }
-
-    if (@result != @$instructs_ref) {
-        die "Cycle detected or node mismatch: got @result, expected ", scalar(@$instructs_ref), "\n";
-    }
-
-    return @result;
-}
-
 
 # ======== Dependency Graph Extracting ========
 foreach my $bb (@bbs) {
@@ -68,11 +33,13 @@ foreach my $bb (@bbs) {
 	my (%dep_graph, %in_degree, %nodes, @all_nodes, @instructs);
 	# ==== preprocess line test ====
 	my $lineNum = 0;
+	my @clean_bb_content;
 	foreach my $line (@bb_content) {
-		$lineNum++;
 		if (preProcessLine($line)) {
 			if (my $inst = processAsmLine($line, $lineNum)) {
+				$lineNum++;
 				($inst->{opcode} !~ m"branch") ? push (@instructs, $inst) : ($jmp = $inst->{inst});
+				push @clean_bb_content, $line;
 			}
 		}
 	}
@@ -131,17 +98,17 @@ foreach my $bb (@bbs) {
 		}
 	}
 
-	my @reordered_bb = @bb_content [map { $_ - 1 } @$sort];
+	my @reordered_bb = @clean_bb_content [map { $_ - 1 } @$sort];
 
 	# my @new_order = random_topo_sort(\%dep_graph, \%in_degree, \@instructs);
-	# my @reordered_bb = @bb_content [map { $_ - 1 } @new_order];
+	# my @reordered_bb = @clean_bb_content [map { $_ - 1 } @new_order];
 	@{$bb->{content}} = ($label, @reordered_bb, ($jmp ne '' ? $jmp : ()));
 }
 
 # ======== Replace the modified bb to the asm file ========
 my @file_lines = split "\n", $file;
 my @asm_lines = split "\n", $asm->{content};
-my $bb = $bbs[1];
+my $bb = $bbs[0];
 
 # ==== Replace bb to asm ====
 my $bb_start = $bb->{start};
@@ -159,6 +126,6 @@ open my $out, '>', 'asm/out.s' or die "Can't write file: $!";
 print $out join("\n", @file_lines);
 close $out;
 
-foreach my $line (@{$bbs[1]->{content}}) {
+foreach my $line (@{$bbs[0]->{content}}) {
 	print $line . "\n";
 }

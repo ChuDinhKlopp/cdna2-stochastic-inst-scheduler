@@ -15,7 +15,7 @@ my (%counter, %srcReg, %dstReg, %regOps, %lgkmcnt, %vmcnt);
 %lgkmcnt = map { $_ => 1 } qw (lgkm);
 %vmcnt = map { $_ => 1 } qw (vm);
 %counter = (%lgkmcnt, %vmcnt);
-%srcReg = map { $_ => 1 } qw(sbase ssrc0 ssrc1 vsrc1 src0 src1 src2 srsrc data0 data1);
+%srcReg = map { $_ => 1 } qw(sbase ssrc0 ssrc1 vsrc1 src0 src1 src2 srsrc data0 data1 addr);
 %dstReg = map { $_ => 1 } qw(sdata sdst vdata vdst);
 %regOps = (%srcReg, %dstReg);
 
@@ -247,6 +247,38 @@ sub load_topo_state {
     my ($class, $filename) = @_;
     require Storable;
     return Storable::retrieve($filename);
+}
+
+sub random_topo_sort {
+    my ($graph, $in_degree_ref, $instructs_ref) = @_;
+    my %in_degree = %$in_degree_ref;
+    my @result;
+
+    my $n = scalar(@$instructs_ref);  # total number of valid nodes (1-based)
+
+    # Start with all valid nodes with zero in-degree
+    my @zero_in = grep { $in_degree{$_} == 0 && $_ >= 1 && $_ <= $n } keys %in_degree;
+
+    while (@zero_in) {
+        @zero_in = shuffle(@zero_in);
+        my $node = shift @zero_in;
+
+        # Sanity check
+        next unless $node >= 1 && $node <= $n;
+
+        push @result, $node;
+
+        foreach my $child (@{ $graph->{$node} || [] }) {
+            $in_degree{$child}--;
+            push @zero_in, $child if $in_degree{$child} == 0;
+        }
+    }
+
+    if (@result != @$instructs_ref) {
+        die "Cycle detected or node mismatch: got @result, expected ", scalar(@$instructs_ref), "\n";
+    }
+
+    return @result;
 }
 
 __END__
