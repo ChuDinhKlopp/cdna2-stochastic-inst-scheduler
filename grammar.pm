@@ -48,9 +48,11 @@ our %grammar = (
 
 	# ==== SOPC ====
 	's_cmp_lg_(?:i32|u32|u64)' 	 		=> [ {format => "SOPC", rule => qr"$opcodeRe (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)", implicit_writes => ['scc']} ],
+	's_cmp_(?:eq|ne|gt|ge|le|lt)_(?:i32|u32)' 	 		=> [ {format => "SOPC", rule => qr"$opcodeRe (?<ssrc0>$sgprRe|$immRe), (?<ssrc1>$sgprRe|$immRe)", implicit_writes => ['scc']} ],
 	# ==== SOPK ====
-	s_addk_ 	 		=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)", implicit_writes => ['scc']} ],
-	s_cmpk_ 	 		=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)", implicit_writes => ['scc']} ],
+	's_addk_i32' 	 		=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)", implicit_writes => ['scc']} ],
+	's_cmpk_lg_(?:i32|u32)' 	 		=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)", implicit_writes => ['scc']} ],
+	's_cmpk_(?:eq|ne|gt|ge|le|lt)_(?:i32|u32)' 	 		=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)", implicit_writes => ['scc']} ],
 	's_movk_i32' 	 		=> [ {format => "SOPK", rule => qr"$opcodeRe (?<sdst>$sgprRe), (?<simm>$immRe)"} ],
 
 	# ======== MUBUF ========
@@ -68,10 +70,9 @@ our %grammar = (
 	'v_addc_co_u32' 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)", implicit_write => ['vcc']},
 							 {format => "VOP3B", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)", implicit_write => ['vcc']} ],
 	'v_and_b32' 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
-	v_fmac 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
-	v_pk_fmac 			=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
+	'v_fmac_(?:f32|f64)' 		 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 	'v_lshlrev_(?:b32|b16)' 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
-	v_lshrrev 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
+	'v_lshrrev_(?:b32|b16)' 	 		=> [ {format => "VOP2", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<vsrc1>$vgprRe)"} ],
 
 	# ==== VOP3A ====
 	'v_and_or_b32' 	 			=> [ {format => "VOP3A", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<src1>$sgprRe|$vgprRe|$immRe), (?<src2>$sgprRe|$vgprRe|$immRe)"} ],
@@ -79,6 +80,7 @@ our %grammar = (
 	'v_lshl_or_b32' 	 		=> [ {format => "VOP3A", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<src1>$sgprRe|$vgprRe|$immRe), (?<src2>$sgprRe|$vgprRe|$immRe)"} ],
 	'v_or3_b32'	 	 			=> [ {format => "VOP3A", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<src1>$sgprRe|$vgprRe|$immRe), (?<src2>$sgprRe|$vgprRe|$immRe)"} ],
 	'v_lshlrev_b64'	 	 		=> [ {format => "VOP3A", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<src1>$sgprRe|$vgprRe|$immRe)"} ],
+	'v_lshrrev_b64'	 	 		=> [ {format => "VOP3A", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<src1>$sgprRe|$vgprRe|$immRe)"} ],
 	
 	# ==== VOP3B ====
 	'v_mad_(?:u64_u32|i64_i32)' 		=> [ {format => "VOP3B", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<sdst>$sgprRe), (?<src0>$vgprRe|$sgprRe|$immRe), (?<src1>$sgprRe|$vgprRe|$immRe), (?<src2>$sgprRe|$vgprRe|$immRe)"} ],
@@ -90,7 +92,7 @@ our %grammar = (
 		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe), (?<src1>$vgprRe), (?<src2>$vgprRe)"},
 		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe), (?<src1>$vgprRe), (?<src2>$vgprRe) op_sel_hi:[\d+,\d+,\d+]"} 
 	],
-	v_pk_fma			=> [ 
+	'v_pk_fma_(?:f16|f32)'			=> [ 
 		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$sgprRe), (?<src1>$sgprRe) op_sel:[\d+,\d+]"},
 		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe), (?<src1>$vgprRe) op_sel:[\d+,\d+]"},
 		{format => "VOP3P", rule => qr"$opcodeRe (?<vdst>$vgprRe), (?<src0>$vgprRe), (?<src1>$vgprRe), (?<src2>$vgprRe)"},
@@ -98,7 +100,7 @@ our %grammar = (
 	],
 	# ======== LDS & GDS ========
 	# ==== DS ====
-	ds_read 			=> [ 
+	'ds_read_(?:b32|b64|b96|b128|u8|i8|u16|i16)' 			=> [ 
 		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe)"},
 		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe) offset:\d+"}, 
 		{format => "DS", rule => qr"$opcodeRe (?<vsdt>)$vgprRe, (?<data0>$vgprRe), (?<data1>$vgprRe) offset\d:\d+"}, 
