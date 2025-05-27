@@ -23,7 +23,7 @@ sub extractAsmContent {
     my ($inp) = @_;
     my $full_text = $inp;
 
-    if ($full_text =~ /(?<start>;\s%bb\.0:|^\.LBB0_\d\d*)(?<asm_block>.*?)(?<end>\s+\.section\s+\.rodata)/s) {
+    if ($full_text =~ /(?<start>;\s%bb\.0:|^\.LBB\d_\d\d*)(?<asm_block>.*?)(?<end>\s+\.section\s+\.rodata)/s) {
         my $start_pos = $-[0];  # start position of entire match
         my $end_pos   = $+[0];  # end position of entire match
 
